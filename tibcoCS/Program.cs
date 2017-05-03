@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Data.SqlClient;
+//using System.Data.SqlClient;
 using TIBCO.Rendezvous;
 using EDLib;
 using EDLib.TIBCORV;
@@ -87,15 +87,7 @@ namespace tibcoCS
 
 
             //Load WID UID lookup table
-            // Load UID TraderID lookup table
-            /*SqlConnection conn2 = new SqlConnection("Data Source=10.101.10.5;Initial Catalog=WMM3;User ID=hedgeuser;Password=hedgeuser");
-            conn2.Open();
-            SqlDataAdapter dataAdapter1 = new SqlDataAdapter(@"select distinct TraderId,StkId,WId from Warrants where (MarketDate<= CONVERT(varchar(10), GETDATE(), 111) and CONVERT(varchar(10), GETDATE(), 111)<= LastTradeDate) and kgiwrt='自家'"
-                                                , conn2);
-            Warrants = new DataTable("Warrants");
-            dataAdapter1.Fill(Warrants);
-            conn2.Close();
-            dataAdapter1.Dispose();*/
+            // Load UID TraderID lookup table            
             Warrants = Utility.ExecSqlQry("select distinct TraderId,StkId,WId from Warrants where (MarketDate<= CONVERT(varchar(10), GETDATE(), 111) and CONVERT(varchar(10), GETDATE(), 111)<= LastTradeDate) and kgiwrt='自家'", 
                 "Data Source=10.101.10.5;Initial Catalog=WMM3;User ID=hedgeuser;Password=hedgeuser", "Warrants");
             Console.WriteLine("Warrants:" + Warrants.Rows.Count);
@@ -106,16 +98,7 @@ namespace tibcoCS
                 WID_UID.Add((string) Row["WId"], (string) Row["StkId"]);
             }
 
-            // Load PM_Inventory    
-            /*SqlConnection conn2 = new SqlConnection("Data Source=10.101.10.5;Initial Catalog=WMM3;User ID=hedgeuser;Password=hedgeuser");
-            conn2.Open();
-            SqlDataAdapter dataAdapter1 = new SqlDataAdapter(@"SELECT [Symbol],[SecurityDesc],[Underlying],[Position],[Inventory]/1000 Inv,[Trader],[OrigTrader]	       
-                    FROM [WMM3].[dbo].[PM_Inventory] as A left join [WMM3].[dbo].[WarrantParam] as B on A.WarrantKey = B.WarrantKey 
-                    where A.TradeDate = '" + LastTDate + "'and A.Type = 'WAR' and -Position/(Inventory) > UpLimitReleasingRatio/(100.0-UpLimitReleasingRatio)", conn2);
-            PM_Inventory = new DataTable("PM_Inventory");
-            dataAdapter1.Fill(PM_Inventory);
-            conn2.Close();
-            dataAdapter1.Dispose();*/
+            // Load PM_Inventory            
             PM_Inventory = Utility.ExecSqlQry(@"SELECT [Symbol],[SecurityDesc],[Underlying],[Position],[Inventory]/1000 Inv,[Trader],[OrigTrader]	       
                     FROM [WMM3].[dbo].[PM_Inventory] as A left join [WMM3].[dbo].[WarrantParam] as B on A.WarrantKey = B.WarrantKey 
                     where A.TradeDate = '" + LastTDate + "'and A.Type = 'WAR' and -Position/(Inventory) > UpLimitReleasingRatio/(100.0-UpLimitReleasingRatio)",
@@ -126,18 +109,7 @@ namespace tibcoCS
             SleepToTarget inv0900 = new SleepToTarget(new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, 09, 00, 00), sendPM);
             inv0900.Start();
 
-            // Load ELN_PGN data
-            /*conn2 = new SqlConnection("Data Source=10.101.10.5;Initial Catalog=HEDGE;User ID=hedgeuser;Password=hedgeuser");
-            conn2.Open();
-            dataAdapter1 = new SqlDataAdapter(@"SELECT [underlying],sum([position]) as sumPos,[user_id]	       	       
-                                                FROM [dbo].[eln_pgn_data]
-                                                where maturity_date = '" + todayStr + "'"
-                                                + "group by underlying, user_id having sum([position]) <> 0", conn2);
-            ELN_PGN = new DataTable("ELN_PGN");
-            dataAdapter1.Fill(ELN_PGN);
-            conn2.Close();
-            dataAdapter1.Dispose();*/
-
+            // Load ELN_PGN data        
             ELN_PGN = Utility.ExecSqlQry(@"SELECT [underlying],sum([position]) as sumPos,[user_id]	       	       
                                                 FROM [dbo].[eln_pgn_data]
                                                 where maturity_date = '" + todayStr + "'"
