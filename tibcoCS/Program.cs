@@ -6,6 +6,7 @@ using System.Data;
 using TIBCO.Rendezvous;
 using EDLib;
 using EDLib.TIBCORV;
+using EDLib.SQL;
 
 namespace tibcoCS
 {
@@ -45,7 +46,7 @@ namespace tibcoCS
                                                    //"TW.WMM3.SlippageCost.HedgeInfo.PROD" ,
                                                    //"TW.WMM3.FilledReportRelayService.ExecutionReport.PROD"
                                                  };
-        private static readonly string LastTDate = TradeDate.LastNTradeDate(1); // LastTradeDate();//"20161006";//
+        private static readonly string LastTDate = TradeDate.LastNTradeDate(1).ToString("yyyyMMdd"); // LastTradeDate();//"20161006";//
         private static readonly string todayStr = DateTime.Today.ToString("yyyyMMdd");
 #if !DEBUG
         private static readonly TIBCORVSender Sender = new TIBCORVSender("9082", ";239.16.1.6", "10.60.0.128:7500");
@@ -88,7 +89,7 @@ namespace tibcoCS
 
             //Load WID UID lookup table
             // Load UID TraderID lookup table            
-            Warrants = Utility.ExecSqlQry("select distinct TraderId,StkId,WId from Warrants where (MarketDate<= CONVERT(varchar(10), GETDATE(), 111) and CONVERT(varchar(10), GETDATE(), 111)<= LastTradeDate) and kgiwrt='自家'",
+            Warrants = SQL.ExecSqlQry("select distinct TraderId,StkId,WId from Warrants where (MarketDate<= CONVERT(varchar(10), GETDATE(), 111) and CONVERT(varchar(10), GETDATE(), 111)<= LastTradeDate) and kgiwrt='自家'",
                 "Data Source=10.101.10.5;Initial Catalog=WMM3;User ID=hedgeuser;Password=hedgeuser", "Warrants");
             Console.WriteLine("Warrants:" + Warrants.Rows.Count);
 
@@ -99,7 +100,7 @@ namespace tibcoCS
             }
 
             // Load PM_Inventory            
-            PM_Inventory = Utility.ExecSqlQry(@"SELECT [Symbol],[SecurityDesc],[Underlying],[Position],[Inventory]/1000 Inv,[Trader],[OrigTrader]	       
+            PM_Inventory = SQL.ExecSqlQry(@"SELECT [Symbol],[SecurityDesc],[Underlying],[Position],[Inventory]/1000 Inv,[Trader],[OrigTrader]	       
                     FROM [WMM3].[dbo].[PM_Inventory] as A left join [WMM3].[dbo].[WarrantParam] as B on A.WarrantKey = B.WarrantKey 
                     where A.TradeDate = '" + LastTDate + "'and A.Type = 'WAR' and -Position/(Inventory) > UpLimitReleasingRatio/(100.0-UpLimitReleasingRatio)",
                     "Data Source=10.101.10.5;Initial Catalog=WMM3;User ID=hedgeuser;Password=hedgeuser", "PM_Inventory");
@@ -110,7 +111,7 @@ namespace tibcoCS
             inv0900.Start();
 
             // Load ELN_PGN data        
-            ELN_PGN = Utility.ExecSqlQry(@"SELECT [underlying],sum([position]) as sumPos,[user_id]	       	       
+            ELN_PGN = SQL.ExecSqlQry(@"SELECT [underlying],sum([position]) as sumPos,[user_id]	       	       
                                                 FROM [dbo].[eln_pgn_data]
                                                 where maturity_date = '" + todayStr + "'"
                                                 + "group by underlying, user_id having sum([position]) <> 0",
