@@ -14,7 +14,7 @@ namespace tibcoCS
     class Program
     {
         // Const parameters       
-        private static readonly string[] service = {
+        /*private static readonly string[] service = {
                                                      "9082",
                                                      "9013",
                                                      null,
@@ -45,7 +45,12 @@ namespace tibcoCS
                                                    "TWSE.MarketDataSnapshotFullRefresh",
                                                    //"TW.WMM3.SlippageCost.HedgeInfo.PROD" ,
                                                    //"TW.WMM3.FilledReportRelayService.ExecutionReport.PROD"
-                                                 };
+                                                 };*/
+        private static readonly RVParameters[] rvParameters = new RVParameters[] { GlobalParameters.WMMLog, GlobalParameters.PM,
+                                                                                  GlobalParameters.Liquidity, GlobalParameters.TWSE
+                                                                                 //, GlobalParameters.Slippage, GlobalParameters.ExecutionReport
+                                                                                 };
+        
         private static readonly string LastTDate = TradeDate.LastNTradeDate(1).ToString("yyyyMMdd"); // LastTradeDate();//"20161006";//
         private static readonly string todayStr = DateTime.Today.ToString("yyyyMMdd");
 #if !DEBUG
@@ -75,22 +80,22 @@ namespace tibcoCS
             //Temp.Start();
 
             //Initialize Listener components
-            ListenerFunc[] callback = new ListenerFunc[service.Length];
+            ListenerFunc[] callback = new ListenerFunc[rvParameters.Length];
             callback[0] = new ListenerFunc(OnMessageReceived2);
             callback[1] = new ListenerFunc(OnMessageReceived3);
             callback[2] = new ListenerFunc(OnMessageReceived5);
             callback[3] = new ListenerFunc(OnMessageReceived4);            
             //callback[4] = new ListenerFunc(OnMessageReceived);
             //callback[5] = new ListenerFunc(OnMessageReceived1);
-            Console.WriteLine("ListeneFunc initialized");
-            TIBCORVListener Listeners = new TIBCORVListener(service, network, daemon);
-            Console.WriteLine("Listeners initialized");
+            Console.WriteLine("ListenerFuncs initialized");                     
 
+            TIBCORVListener Listeners = new TIBCORVListener(rvParameters);
+            Console.WriteLine("Listeners initialized");
 
             //Load WID UID lookup table
             // Load UID TraderID lookup table            
             Warrants = SQL.ExecSqlQry("select distinct TraderId,StkId,WId from Warrants where (MarketDate<= CONVERT(varchar(10), GETDATE(), 111) and CONVERT(varchar(10), GETDATE(), 111)<= LastTradeDate) and kgiwrt='自家'",
-                "Data Source=10.101.10.5;Initial Catalog=WMM3;User ID=hedgeuser;Password=hedgeuser", "Warrants");
+                GlobalParameters.WMM3, "Warrants");
             Console.WriteLine("Warrants:" + Warrants.Rows.Count);
 
             foreach (DataRow Row in Warrants.Rows) {
@@ -103,7 +108,7 @@ namespace tibcoCS
             PM_Inventory = SQL.ExecSqlQry(@"SELECT [Symbol],[SecurityDesc],[Underlying],[Position],[Inventory]/1000 Inv,[Trader],[OrigTrader]	       
                     FROM [WMM3].[dbo].[PM_Inventory] as A left join [WMM3].[dbo].[WarrantParam] as B on A.WarrantKey = B.WarrantKey 
                     where A.TradeDate = '" + LastTDate + "'and A.Type = 'WAR' and -Position/(Inventory) > UpLimitReleasingRatio/(100.0-UpLimitReleasingRatio)",
-                    "Data Source=10.101.10.5;Initial Catalog=WMM3;User ID=hedgeuser;Password=hedgeuser", "PM_Inventory");
+                    GlobalParameters.WMM3, "PM_Inventory");
             Console.WriteLine("PM_InventoryCount:" + PM_Inventory.Rows.Count);
 
             sendPM();
@@ -115,7 +120,7 @@ namespace tibcoCS
                                                 FROM [dbo].[eln_pgn_data]
                                                 where maturity_date = '" + todayStr + "'"
                                                 + "group by underlying, user_id having sum([position]) <> 0",
-                                                "Data Source=10.101.10.5;Initial Catalog=HEDGE;User ID=hedgeuser;Password=hedgeuser",
+                                                GlobalParameters.HEDGE,
                                                 "ELN_PGN");
             Console.WriteLine("ELN_PGN:" + ELN_PGN.Rows.Count);
 
@@ -127,7 +132,7 @@ namespace tibcoCS
 
 
             // Block here
-            Listeners.Listen(topic, callback);
+            Listeners.Listen(callback);
 
             // Force optimizer to keep alive listeners up to this point.
             GC.KeepAlive(Listeners);
