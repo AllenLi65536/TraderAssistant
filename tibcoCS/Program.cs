@@ -1,8 +1,6 @@
-﻿// #define dosend
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data;
-//using System.Data.SqlClient;
 using TIBCO.Rendezvous;
 using EDLib;
 using EDLib.TIBCORV;
@@ -50,8 +48,8 @@ namespace tibcoCS
                                                                                   GlobalParameters.Liquidity, GlobalParameters.TWSE
                                                                                  //, GlobalParameters.Slippage, GlobalParameters.ExecutionReport
                                                                                  };
-        
-        private static readonly string LastTDate = TradeDate.LastNTradeDate(1).ToString("yyyyMMdd"); // LastTradeDate();//"20161006";//
+
+        private static readonly string lastTDate = TradeDate.LastNTradeDate(1).ToString("yyyyMMdd"); // LastTradeDate();//"20161006";//
         private static readonly string todayStr = DateTime.Today.ToString("yyyyMMdd");
 #if !DEBUG
         private static readonly TIBCORVSender Sender = new TIBCORVSender("9082", ";239.16.1.6", "10.60.0.128:7500");
@@ -74,28 +72,25 @@ namespace tibcoCS
         /// The main entry point for the application.
         /// </summary>
         [MTAThread]
-        static void Main() {
-            //DateTime close_time = new DateTime(DateTime.Now.Year , DateTime.Now.Month , DateTime.Now.Day , 13 , 35 , 00);
-            //SleepToTarget Temp = new SleepToTarget(close_time , flush_sw);
-            //Temp.Start();
+        static void Main() {                     
 
             //Initialize Listener components
             ListenerFunc[] callback = new ListenerFunc[rvParameters.Length];
             callback[0] = new ListenerFunc(OnMessageReceived2);
             callback[1] = new ListenerFunc(OnMessageReceived3);
             callback[2] = new ListenerFunc(OnMessageReceived5);
-            callback[3] = new ListenerFunc(OnMessageReceived4);            
+            callback[3] = new ListenerFunc(OnMessageReceived4);
             //callback[4] = new ListenerFunc(OnMessageReceived);
             //callback[5] = new ListenerFunc(OnMessageReceived1);
-            Console.WriteLine("ListenerFuncs initialized");                     
+            Console.WriteLine("ListenerFuncs initialized");
 
-            TIBCORVListener Listeners = new TIBCORVListener(rvParameters);
+            TIBCORVListener listeners = new TIBCORVListener(rvParameters);
             Console.WriteLine("Listeners initialized");
 
             //Load WID UID lookup table
             // Load UID TraderID lookup table            
-            Warrants = SQL.ExecSqlQry("select distinct TraderId,StkId,WId from Warrants where (MarketDate<= CONVERT(varchar(10), GETDATE(), 111) and CONVERT(varchar(10), GETDATE(), 111)<= LastTradeDate) and kgiwrt='自家'",
-                GlobalParameters.WMM3, "Warrants");
+            Warrants = MSSQL.ExecSqlQry("select distinct TraderId,StkId,WId from Warrants where (MarketDate<= CONVERT(varchar(10), GETDATE(), 111) and CONVERT(varchar(10), GETDATE(), 111)<= LastTradeDate) and kgiwrt='自家'",
+                GlobalParameters.wmm3SqlConnStr, "Warrants");
             Console.WriteLine("Warrants:" + Warrants.Rows.Count);
 
             foreach (DataRow Row in Warrants.Rows) {
@@ -105,10 +100,10 @@ namespace tibcoCS
             }
 
             // Load PM_Inventory            
-            PM_Inventory = SQL.ExecSqlQry(@"SELECT [Symbol],[SecurityDesc],[Underlying],[Position],[Inventory]/1000 Inv,[Trader],[OrigTrader]	       
+            PM_Inventory = MSSQL.ExecSqlQry(@"SELECT [Symbol],[SecurityDesc],[Underlying],[Position],[Inventory]/1000 Inv,[Trader],[OrigTrader]	       
                     FROM [WMM3].[dbo].[PM_Inventory] as A left join [WMM3].[dbo].[WarrantParam] as B on A.WarrantKey = B.WarrantKey 
-                    where A.TradeDate = '" + LastTDate + "'and A.Type = 'WAR' and -Position/(Inventory) > UpLimitReleasingRatio/(100.0-UpLimitReleasingRatio)",
-                    GlobalParameters.WMM3, "PM_Inventory");
+                    where A.TradeDate = '" + lastTDate + "'and A.Type = 'WAR' and -Position/(Inventory) > UpLimitReleasingRatio/(100.0-UpLimitReleasingRatio)",
+                    GlobalParameters.wmm3SqlConnStr, "PM_Inventory");
             Console.WriteLine("PM_InventoryCount:" + PM_Inventory.Rows.Count);
 
             sendPM();
@@ -116,11 +111,11 @@ namespace tibcoCS
             inv0900.Start();
 
             // Load ELN_PGN data        
-            ELN_PGN = SQL.ExecSqlQry(@"SELECT [underlying],sum([position]) as sumPos,[user_id]	       	       
+            ELN_PGN = MSSQL.ExecSqlQry(@"SELECT [underlying],sum([position]) as sumPos,[user_id]	       	       
                                                 FROM [dbo].[eln_pgn_data]
                                                 where maturity_date = '" + todayStr + "'"
                                                 + "group by underlying, user_id having sum([position]) <> 0",
-                                                GlobalParameters.HEDGE,
+                                                GlobalParameters.hedgeSqlConnStr,
                                                 "ELN_PGN");
             Console.WriteLine("ELN_PGN:" + ELN_PGN.Rows.Count);
 
@@ -130,12 +125,11 @@ namespace tibcoCS
             SleepToTarget eln1320 = new SleepToTarget(new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, 13, 20, 00), sendELN);
             eln1320.Start();
 
-
             // Block here
-            Listeners.Listen(callback);
+            listeners.Listen(callback);
 
             // Force optimizer to keep alive listeners up to this point.
-            GC.KeepAlive(Listeners);
+            GC.KeepAlive(listeners);
 
             // Should not go here
             System.Environment.Exit(1);
@@ -330,11 +324,13 @@ namespace tibcoCS
 
                     SendMsg.AddField("SymbolNo", Symbol);
                     SendMsg.AddField("TODO", "No");
-                    if (OverOrLackPx > 0)
+                    if (OverOrLackPx > 0) {
                         SendMsg.AddField("Message", "Over:" + Math.Round(OverOrLackPx / 10000) + "萬");
-                    else
+                        SendMsg.AddField("Type", 30);
+                    } else {
                         SendMsg.AddField("Message", "Lack:" + Math.Round(OverOrLackPx / 10000) + "萬");
-                    SendMsg.AddField("Type", 8);
+                        SendMsg.AddField("Type", 20);
+                    }                   
 
                     Console.WriteLine(SendMsg.ToString());
 #if !DEBUG
@@ -412,13 +408,15 @@ namespace tibcoCS
                         SendMsg.AddField("TraderID", UID_TraderID[UID]);//message.GetField("Trader").Value.ToString()
                         SendMsg.AddField("SymbolNo", UID);
                         SendMsg.AddField("TODO", "No");
-                        if (kgiLong > otherLong)
+                        if (kgiLong > otherLong) {
                             SendMsg.AddField("Message", "自家權證多:" + kgiLong + " 他家多:" + otherLong);
-                        else if (kgiShort > otherShort)
+                            SendMsg.AddField("Type", 31);
+                        } else if (kgiShort > otherShort) {
                             SendMsg.AddField("Message", "自家權證空:" + kgiShort + " 他家空:" + otherShort);
-                        else
+                            SendMsg.AddField("Type", 21);
+                        } else
                             SendMsg.AddField("Message", " ");
-                        SendMsg.AddField("Type", 9);
+                       
 #if !DEBUG
                         Sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
@@ -493,11 +491,8 @@ namespace tibcoCS
                     Console.WriteLine(message);
                     break;
             }
-
-
         }
-
-
+        
         static void OnMessageReceived(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
             Message message = messageReceivedEventArgs.Message;
             string type = string.Empty;
