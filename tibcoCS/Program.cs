@@ -5,81 +5,59 @@ using TIBCO.Rendezvous;
 using EDLib;
 using EDLib.TIBCORV;
 using EDLib.SQL;
+using System.Data.SqlClient;
 
 namespace tibcoCS
 {
 
     class Program
     {
-        // Const parameters       
-        /*private static readonly string[] service = {
-                                                     "9082",
-                                                     "9013",
-                                                     null,
-                                                     null,
-                                                     //null,                                                  
-                                                     //null
-                                                   };
-        private static readonly string[] network = {
-                                                     ";239.16.1.6",
-                                                     "172.31.2;239.16.1.72",
-                                                     "172.31.2;239.16.1.72",
-                                                     "172.31.2;239.16.1.72",
-                                                     //"172.31.2;239.16.1.72",
-                                                     //"172.31.2;239.16.1.72"
-                                                   };
-        private static readonly string[] daemon = {
-                                                    "10.60.0.128:7500",
-                                                    "10.60.0.101:7500",
-                                                    "10.60.0.128:7500", //"172.31.2.1:7500",
-                                                    "10.60.0.128:7500", 
-                                                    //"10.60.0.101:7500",
-                                                    //"10.60.0.129:7500"
-                                                  };
-        private static readonly string[] topic = {
-                                                   "TW.ED.WMM3.CLIENT.LOG" ,
-                                                   "TW.WMM3.PM.PositionReport.>" ,
-                                                   "MarketLiquidityInfo.*",
-                                                   "TWSE.MarketDataSnapshotFullRefresh",
-                                                   //"TW.WMM3.SlippageCost.HedgeInfo.PROD" ,
-                                                   //"TW.WMM3.FilledReportRelayService.ExecutionReport.PROD"
-                                                 };*/
+        // Const parameters
+#if DEBUG
         private static readonly RVParameters[] rvParameters = new RVParameters[] { GlobalParameters.WMMLog, GlobalParameters.PM,
-                                                                                  GlobalParameters.Liquidity, GlobalParameters.TWSE
+                                                                                  GlobalParameters.Liquidity,
+                                                                                 //   GlobalParameters.TWSE
                                                                                  //, GlobalParameters.Slippage, GlobalParameters.ExecutionReport
                                                                                  };
-
-        private static readonly string lastTDate = TradeDate.LastNTradeDate(1).ToString("yyyyMMdd"); // LastTradeDate();//"20161006";//
+#else
+        private static readonly RVParameters[] rvParameters = new RVParameters[] { GlobalParameters.WMMLog, GlobalParameters.PMnoDaemon,
+                                                                                  GlobalParameters.LiquidityNoDaemon,
+                                                                                  // GlobalParameters.TWSEnoDaemon,
+                                                                                  // GlobalParameters.SlippageNoDaemon, GlobalParameters.ExecutionReportNoDaemon
+                                                                                 };
+#endif
+        private static readonly string lastTDate = TradeDate.LastNTradeDate(1).ToString("yyyyMMdd"); //"20161006";//
         private static readonly string todayStr = DateTime.Today.ToString("yyyyMMdd");
 #if !DEBUG
-        private static readonly TIBCORVSender Sender = new TIBCORVSender("9082", ";239.16.1.6", "10.60.0.128:7500");
+        private static readonly TIBCORVSender sender = new TIBCORVSender("9082", ";239.16.1.6", "10.60.0.128:7500");
 #endif
         // Adjustable parameters        
-        private const int OverLimit = 5000000;
-        private const int UnderLimit = -5000000;
+        private const int overLimit = 5000000;
+        private const int underLimit = -5000000;
 
         // Variables   
-        static Dictionary<string, Message> MarketData = new Dictionary<string, Message>();
+        static Dictionary<string, Message> marketData = new Dictionary<string, Message>();
         static Dictionary<string, string> WID_UID = new Dictionary<string, string>();
         static Dictionary<string, string> UID_TraderID = new Dictionary<string, string>();
+        static Dictionary<string, int> UID_overLimit = new Dictionary<string, int>();
+        static Dictionary<string, int> UID_underLimit = new Dictionary<string, int>();
         static DataTable PM_Inventory;
         static DataTable ELN_PGN;
         static DataTable Warrants;
 
-        //static StreamWriter temp = new StreamWriter("./temptile.txt");
 
         /// <summary>
         /// The main entry point for the application.
         /// </summary>
         [MTAThread]
-        static void Main() {                     
+        static void Main() {
 
             //Initialize Listener components
             ListenerFunc[] callback = new ListenerFunc[rvParameters.Length];
             callback[0] = new ListenerFunc(OnMessageReceived2);
             callback[1] = new ListenerFunc(OnMessageReceived3);
             callback[2] = new ListenerFunc(OnMessageReceived5);
-            callback[3] = new ListenerFunc(OnMessageReceived4);
+            //callback[3] = new ListenerFunc(OnMessageReceived4);
             //callback[4] = new ListenerFunc(OnMessageReceived);
             //callback[5] = new ListenerFunc(OnMessageReceived1);
             Console.WriteLine("ListenerFuncs initialized");
@@ -87,9 +65,10 @@ namespace tibcoCS
             TIBCORVListener listeners = new TIBCORVListener(rvParameters);
             Console.WriteLine("Listeners initialized");
 
-            //Load WID UID lookup table
+            // Load WID UID lookup table
             // Load UID TraderID lookup table            
-            Warrants = MSSQL.ExecSqlQry("select distinct TraderId,StkId,WId from Warrants where (MarketDate<= CONVERT(varchar(10), GETDATE(), 111) and CONVERT(varchar(10), GETDATE(), 111)<= LastTradeDate) and kgiwrt='自家'",
+            Warrants = MSSQL.ExecSqlQry(@"select distinct TraderId,StkId,WId from Warrants 
+                                          where (MarketDate<= CONVERT(varchar(10), GETDATE(), 111) and CONVERT(varchar(10), GETDATE(), 111)<= LastTradeDate) and kgiwrt='自家'",
                 GlobalParameters.wmm3SqlConnStr, "Warrants");
             Console.WriteLine("Warrants:" + Warrants.Rows.Count);
 
@@ -115,8 +94,7 @@ namespace tibcoCS
                                                 FROM [dbo].[eln_pgn_data]
                                                 where maturity_date = '" + todayStr + "'"
                                                 + "group by underlying, user_id having sum([position]) <> 0",
-                                                GlobalParameters.hedgeSqlConnStr,
-                                                "ELN_PGN");
+                                                GlobalParameters.hedgeSqlConnStr, "ELN_PGN");
             Console.WriteLine("ELN_PGN:" + ELN_PGN.Rows.Count);
 
             sendELN();
@@ -124,6 +102,26 @@ namespace tibcoCS
             eln0900.Start();
             SleepToTarget eln1320 = new SleepToTarget(new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, 13, 20, 00), sendELN);
             eln1320.Start();
+
+            //Load parameter table
+            using (SqlConnection conn2 = new SqlConnection("Data Source=10.10.1.27;Initial Catalog=WMM3;User ID=hedgeuser;Password=hedgeuser")) { //GlobalParameters.wmm3SqlConnStr 
+                conn2.Open();
+                using (SqlCommand cmd2 = new SqlCommand("SELECT [UnderlyingID], [OverLimit], [UnderLimit] FROM[dbo].[MessageWindowUnderlyingParam]", conn2))
+                using (SqlDataReader parameterReader = cmd2.ExecuteReader()) {
+                    while (parameterReader.Read()) {
+                        UID_overLimit.Add((string) parameterReader[0], 10000 * (int) parameterReader[1]);
+                        UID_underLimit.Add((string) parameterReader[0], 10000 * (int) parameterReader[2]);
+                    }
+                }
+            }
+
+            /*DataTable parameters = MSSQL.ExecSqlQry("SELECT [UnderlyingID], [OverLimit], [UnderLimit] FROM[dbo].[MessageWindowUnderlyingParam]"
+            , "Data Source=10.10.1.27;Initial Catalog=WMM3;User ID=hedgeuser;Password=hedgeuser");
+            foreach (DataRow row in parameters.Rows) {
+                UID_overLimit.Add((string) row[0], 10000 * (int) row[1]);
+                UID_underLimit.Add((string) row[0], 10000 * (int) row[2]);
+                Console.Write(row[0] + " " + row[1] + " ");
+            }*/
 
             // Block here
             listeners.Listen(callback);
@@ -151,12 +149,12 @@ namespace tibcoCS
                 SendMsg.AddField("Type", 1);
                 Console.WriteLine(SendMsg.ToString());
 #if !DEBUG
-                Sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
+                sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
             }
         }
         static void sendELN() {
-            // Load ELN_PGN data
+
             foreach (DataRow Row in ELN_PGN.Rows) {
                 Message SendMsg = new Message();
                 string UID = Row["underlying"].ToString();
@@ -172,13 +170,14 @@ namespace tibcoCS
                 SendMsg.AddField("Type", 2);
                 Console.WriteLine(SendMsg.ToString());
 #if !DEBUG
-                Sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
+                sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
             }
         }
 
         static string StructureTime(string STAMP) {
-            return STAMP.Substring(0, 4) + "-" + STAMP.Substring(4, 2) + "-" + STAMP.Substring(6, 2) + " " + STAMP.Substring(8, 2) + ":" + STAMP.Substring(10, 2) + ":" + STAMP.Substring(12, 2) + "." + STAMP.Substring(14, 3);
+            return STAMP.Substring(0, 4) + "-" + STAMP.Substring(4, 2) + "-" + STAMP.Substring(6, 2) + " "
+                + STAMP.Substring(8, 2) + ":" + STAMP.Substring(10, 2) + ":" + STAMP.Substring(12, 2) + "." + STAMP.Substring(14, 3);
         }
 
         static void OnMessageReceived2(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
@@ -193,25 +192,20 @@ namespace tibcoCS
                 return;
             }
 
-
             switch (type) {
                 case "ServerMsg":
                     if (message.GetField("Message").Value.ToString()[18] == 'D')
-                        break;
-
+                        return;
                     //Buffer = message.GetField("STAMP").Value.ToString() + "," + message.GetField("Message").Value.ToString();
                     //Buffer += "," + message.GetField("USERID").Value.ToString().Substring(3 , 4);
                     //Console.WriteLine(Buffer);
-
                     break;
                 case "ServerMsg1":
                     if (message.GetField("Message").Value.ToString().StartsWith("D"))
-                        break;
-
+                        return;
                     //Buffer = message.GetField("STAMP").Value.ToString() + "," + message.GetField("Message").Value.ToString();
                     //Buffer += "," + message.GetField("USERID").Value.ToString().Substring(3 , 4);
                     //Console.WriteLine(Buffer);
-
                     break;
 
                 case "ServerLog":
@@ -220,71 +214,95 @@ namespace tibcoCS
                         return;
                     string Type = message.GetField("Type").Value.ToString();
                     if (!(Type == "100" || Type == "504" || Type == "503"))
-                        break;
-                    string MessageString = message.GetField("Message").Value.ToString();
+                        return;
+                    string messageString = message.GetField("Message").Value.ToString();
                     string STAMP = StructureTime(message.GetField("STAMP").Value.ToString());
                     string WID = message.GetField("WID").Value.ToString();
                     string UID = WID_UID[WID];
                     //string UserID = message.GetField("USERID").Value.ToString();
-                    Message SendMsg = new Message();
+                    Message sendMsg = new Message();
 
-                    SendMsg.AddField("MSGTYPE", "MessageWindow");
-                    SendMsg.AddField("Time", STAMP);
-                    SendMsg.AddField("TraderID", UID_TraderID[UID]);
-                    SendMsg.AddField("SymbolNo", UID); // WID + "/" +
-                    SendMsg.AddField("TODO", "No");
+                    sendMsg.AddField("MSGTYPE", "MessageWindow");
+                    sendMsg.AddField("Time", STAMP);
+                    sendMsg.AddField("TraderID", UID_TraderID[UID]);
+                    sendMsg.AddField("SymbolNo", UID);
+                    sendMsg.AddField("TODO", "No");
 
+                    int index;
                     if (Type == "100") {
-                        if (MessageString.Contains("DelayMode3")) {
-                            SendMsg.AddField("Message", "進入造市情境三(他家權證被攻擊)");
-                            SendMsg.AddField("Type", 3);
-                            Console.WriteLine(SendMsg.ToString());
+                        if (messageString.Contains("DelayMode3")) {
+                            sendMsg.AddField("Message", "進入造市情境三(他家權證被攻擊)");
+                            sendMsg.AddField("Type", 3);
+                            Console.WriteLine(sendMsg.ToString());
 #if !DEBUG
-                            Sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
+                            sender.Send(sendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
-                        } else if (MessageString.Contains("DelayMode4")) {
-                            SendMsg.AddField("Message", "進入造市情境四(自家權證被攻擊)");
-                            SendMsg.AddField("Type", 4);
-                            Console.WriteLine(SendMsg.ToString());
+                        } else if ((index = messageString.IndexOf("DelayMode4")) != -1) {
+                            Console.WriteLine(messageString[index + 11] + " " + messageString[index + 12]);
+
+                            if (messageString[index + 11] == 'L') {
+                                sendMsg.AddField("Message", "進入造市情境四(自家權證被多方攻擊)");
+                                sendMsg.AddField("Type", 22);
+                            } else if (messageString[index + 11] == 'S') {
+                                sendMsg.AddField("Message", "進入造市情境四(自家權證被空方攻擊)");
+                                sendMsg.AddField("Type", 32);
+                            } else {
+                                sendMsg.AddField("Message", "進入造市情境四(自家權證被攻擊)");
+                                sendMsg.AddField("Type", 4);
+                            }
+
+                            if (messageString[index + 12] == 'S') {
+                                Message sendMsg2 = new Message();
+
+                                sendMsg2.AddField("MSGTYPE", "MessageWindow");
+                                sendMsg2.AddField("Time", STAMP);
+                                sendMsg2.AddField("TraderID", UID_TraderID[UID]);
+                                sendMsg2.AddField("SymbolNo", UID);
+                                sendMsg2.AddField("TODO", "No");
+                                sendMsg2.AddField("Message", "進入造市情境四(自家權證被空方攻擊)");
+                                sendMsg2.AddField("Type", 32);
 #if !DEBUG
-                            Sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
+                                sender.Send(sendMsg2, "TW.ED.WMM3.MessageWindow");
+#endif
+                            }
+
+                            Console.WriteLine(sendMsg.ToString());
+#if !DEBUG
+                            sender.Send(sendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
                         }
 
                     }
                     if (Type == "503") {
-                        SendMsg.AddField("Message", "處置股票");
-                        SendMsg.AddField("Type", 5);
-                        Console.WriteLine(SendMsg.ToString());
+                        sendMsg.AddField("Message", "處置股票");
+                        sendMsg.AddField("Type", 5);
+                        Console.WriteLine(sendMsg.ToString());
 #if !DEBUG
-                        Sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
+                        sender.Send(sendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
                     }
                     if (Type == "504") {
-                        SendMsg.AddField("Message", "盤中暫緩撮合");
-                        SendMsg.AddField("Type", 6);
-                        Console.WriteLine(SendMsg.ToString());
+                        sendMsg.AddField("Message", "盤中暫緩撮合");
+                        sendMsg.AddField("Type", 6);
+                        Console.WriteLine(sendMsg.ToString());
 #if !DEBUG
-                        Sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
+                        sender.Send(sendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
                     }
                     if (Type == "505") {
-                        SendMsg.AddField("Message", "開盤暫緩撮合");
-                        SendMsg.AddField("Type", 7);
-                        Console.WriteLine(SendMsg.ToString());
+                        sendMsg.AddField("Message", "開盤暫緩撮合");
+                        sendMsg.AddField("Type", 7);
+                        Console.WriteLine(sendMsg.ToString());
 #if !DEBUG
-                        Sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
+                        sender.Send(sendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
                     }
 
                     break;
                 default:
-
                     break;
             }
-
         }
-
 
         static void OnMessageReceived3(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
             Message message = messageReceivedEventArgs.Message;
@@ -300,43 +318,47 @@ namespace tibcoCS
             switch (type) {
                 case "PositionReport":
                     if (message.GetField("Depth").Value.ToString() != "3")
-                        break;
-                    string Symbol = message.GetField("Symbol").Value.ToString();
-                    //if (!MarketData.ContainsKey(Symbol))
+                        return;
+                    string symbol = message.GetField("Symbol").Value.ToString();
+                    //if (!MarketData.ContainsKey(symbol))
                     //   break;
 
-                    // double OverOrLack = double.Parse(message.GetField("OverOrLackHedgeNumber").Value.ToString());
-                    // double LastPx = double.Parse(MarketData[Symbol].GetField("LastPx").Value.ToString());
-                    double OverOrLackPx = double.Parse(message.GetField("DeltaInCash").Value.ToString()); // OverOrLack * LastPx;
-
-                    if ((OverOrLackPx >= 0 && OverOrLackPx < OverLimit) || (OverOrLackPx < 0 && OverOrLackPx > UnderLimit))
-                        break;
+                    // double overOrLack = double.Parse(message.GetField("OverOrLackHedgeNumber").Value.ToString());
+                    // double lastPx = double.Parse(MarketData[symbol].GetField("LastPx").Value.ToString());
+                    double overOrLackPx = double.Parse(message.GetField("DeltaInCash").Value.ToString()); // OverOrLack * LastPx;
+                    try {
+                        if ((overOrLackPx >= 0 && overOrLackPx < UID_overLimit[symbol]) || (overOrLackPx < 0 && overOrLackPx > UID_underLimit[symbol]))
+                            return;
+                    } catch {
+                        if ((overOrLackPx >= 0 && overOrLackPx < overLimit) || (overOrLackPx < 0 && overOrLackPx > underLimit))
+                            return;
+                    }
 
                     string STAMP = StructureTime(message.GetField("STAMP").Value.ToString());
 
-                    Message SendMsg = new Message();
-                    SendMsg.AddField("MSGTYPE", "MessageWindow");
-                    SendMsg.AddField("Time", STAMP);
-                    if (UID_TraderID.ContainsKey(Symbol))
-                        SendMsg.AddField("TraderID", UID_TraderID[Symbol]);//message.GetField("Trader").Value.ToString()
+                    Message sendMsg = new Message();
+                    sendMsg.AddField("MSGTYPE", "MessageWindow");
+                    sendMsg.AddField("Time", STAMP);
+                    if (UID_TraderID.ContainsKey(symbol))
+                        sendMsg.AddField("TraderID", UID_TraderID[symbol]);//message.GetField("Trader").Value.ToString()
                     else
-                        SendMsg.AddField("TraderID", message.GetField("Trader").Value.ToString());
+                        sendMsg.AddField("TraderID", message.GetField("Trader").Value.ToString());
 
-                    SendMsg.AddField("SymbolNo", Symbol);
-                    SendMsg.AddField("TODO", "No");
-                    if (OverOrLackPx > 0) {
-                        SendMsg.AddField("Message", "Over:" + Math.Round(OverOrLackPx / 10000) + "萬");
-                        SendMsg.AddField("Type", 30);
+                    sendMsg.AddField("SymbolNo", symbol);
+                    sendMsg.AddField("TODO", "No");
+                    if (overOrLackPx > 0) {
+                        sendMsg.AddField("Message", "Over:" + Math.Round(overOrLackPx / 10000) + "萬");
+                        sendMsg.AddField("Type", 30);
                     } else {
-                        SendMsg.AddField("Message", "Lack:" + Math.Round(OverOrLackPx / 10000) + "萬");
-                        SendMsg.AddField("Type", 20);
-                    }                   
+                        sendMsg.AddField("Message", "Lack:" + Math.Round(overOrLackPx / 10000) + "萬");
+                        sendMsg.AddField("Type", 20);
+                    }
 
-                    Console.WriteLine(SendMsg.ToString());
+                    Console.WriteLine(sendMsg.ToString());
 #if !DEBUG
-                    Sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
+                    sender.Send(sendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
-                    // Buffer = message.GetField("STAMP").Value.ToString() + "," + Symbol;
+                    //Buffer = message.GetField("STAMP").Value.ToString() + "," + Symbol;
                     //Buffer += "," + message.GetField("TriggerType").Value.ToString();
                     //Buffer += "," + OverOrLackPx;
                     //Buffer += "," + message.GetField("OverOrLackHedgeNumberT1").Value.ToString();
@@ -376,14 +398,14 @@ namespace tibcoCS
                     //double uBidP = double.Parse(message.GetField("UnderlyBidPx").Value.ToString());
                     //double uAskP = double.Parse(message.GetField("UnderlyAskPx").Value.ToString());
                     int kgi = -1;
-                    for (int i = 0; i < issuers.Length; i++) {
+                    for (int i = 0; i < issuers.Length; i++)
                         if (issuers[i] == "凱基") {
                             kgi = i;
                             break;
                         }
-                    }
+
                     if (kgi == -1)
-                        break;
+                        return;
 
                     double kgiLong = callBid[kgi] + putAsk[kgi];
                     double kgiShort = callAsk[kgi] + putBid[kgi];
@@ -398,29 +420,28 @@ namespace tibcoCS
                     }
 
 
-
                     if (kgiLong > otherLong || kgiShort > otherShort) {
                         string STAMP = StructureTime(message.GetField("STAMP").Value.ToString());
-                        Message SendMsg = new Message();
-                        SendMsg.AddField("MSGTYPE", "MessageWindow");
-                        SendMsg.AddField("Time", STAMP);
+                        Message sendMsg = new Message();
+                        sendMsg.AddField("MSGTYPE", "MessageWindow");
+                        sendMsg.AddField("Time", STAMP);
                         //if (UID_TraderID.ContainsKey(UID))
-                        SendMsg.AddField("TraderID", UID_TraderID[UID]);//message.GetField("Trader").Value.ToString()
-                        SendMsg.AddField("SymbolNo", UID);
-                        SendMsg.AddField("TODO", "No");
+                        sendMsg.AddField("TraderID", UID_TraderID[UID]);//message.GetField("Trader").Value.ToString()
+                        sendMsg.AddField("SymbolNo", UID);
+                        sendMsg.AddField("TODO", "No");
                         if (kgiLong > otherLong) {
-                            SendMsg.AddField("Message", "自家權證多:" + kgiLong + " 他家多:" + otherLong);
-                            SendMsg.AddField("Type", 31);
+                            sendMsg.AddField("Message", "自家權證多:" + kgiLong + " 他家多:" + otherLong);
+                            sendMsg.AddField("Type", 31);
                         } else if (kgiShort > otherShort) {
-                            SendMsg.AddField("Message", "自家權證空:" + kgiShort + " 他家空:" + otherShort);
-                            SendMsg.AddField("Type", 21);
+                            sendMsg.AddField("Message", "自家權證空:" + kgiShort + " 他家空:" + otherShort);
+                            sendMsg.AddField("Type", 21);
                         } else
-                            SendMsg.AddField("Message", " ");
-                       
+                            sendMsg.AddField("Message", " ");
+
 #if !DEBUG
-                        Sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
+                        sender.Send(sendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
-                        Console.WriteLine(SendMsg.ToString());
+                        Console.WriteLine(sendMsg.ToString());
                         Console.WriteLine("uBid:" + uBidQ + " uAsk:" + uAskQ + " kgiLong:" + kgiLong + " kgiShort:" + kgiShort + " otherLong:" + otherLong + " otherShort:" + otherShort);
                     }
 
@@ -448,7 +469,6 @@ namespace tibcoCS
                         Console.WriteLine("uBid:" + uBidQ + " uAsk:" + uAskQ + " kgiLong:" + kgiLong + " kgiShort:" + kgiShort + " otherLong:" + otherLong + " otherShort:" + otherShort);
                     }
                     */
-
                     //watch.Stop();
                     //Console.WriteLine( watch.ElapsedTicks + " " + watch.ElapsedMilliseconds);
 
@@ -463,13 +483,12 @@ namespace tibcoCS
 
         static void OnMessageReceived4(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
             Message message = messageReceivedEventArgs.Message;
-            //temp.WriteLine(message.ToString());
 
             string type = string.Empty;
-            string Symbol = string.Empty;
+            string symbol = string.Empty;
 
             try {
-                Symbol = message.GetField("Symbol").Value.ToString();
+                symbol = message.GetField("Symbol").Value.ToString();
                 type = message.GetField("MSGTYPE").Value.ToString();
             } catch (Exception e) {
                 Console.WriteLine(e);
@@ -478,11 +497,10 @@ namespace tibcoCS
 
             switch (type) {
                 case "MarketDataSnapshotFullRefresh":
-                    if (MarketData.ContainsKey(Symbol))
-                        MarketData[Symbol] = message;
+                    if (marketData.ContainsKey(symbol))
+                        marketData[symbol] = message;
                     else
-                        MarketData.Add(Symbol, message);
-
+                        marketData.Add(symbol, message);
 
                     //Console.WriteLine(message.ToString());
                     //Console.WriteLine(MarketData[Symbol].GetField("Symbol").Value + " " + MarketData[Symbol].GetField("LastPx").Value);
@@ -492,7 +510,7 @@ namespace tibcoCS
                     break;
             }
         }
-        
+
         static void OnMessageReceived(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
             Message message = messageReceivedEventArgs.Message;
             string type = string.Empty;
@@ -508,7 +526,6 @@ namespace tibcoCS
 
             switch (type) {
                 case "HedgeInfo":
-
                     /*Buffer = message.GetField("STAMP").Value.ToString() + "," + message.GetField("WarrantOrderID").Value.ToString();
                     Buffer += "," + message.GetField("UnderlySymbol").Value.ToString();
                     Buffer += "," + message.GetField("HedgeLots").Value.ToString();
@@ -520,12 +537,9 @@ namespace tibcoCS
                     Buffer += "," + message.GetField("UnderlyingAskQty").Value.ToString();
                     Buffer += "," + message.GetField("HedgeOrderBS").Value.ToString();
                     Buffer += "," + message.GetField("WarrantFilledQty").Value.ToString();*/
-
                     //Console.WriteLine(Buffer);
-
                     break;
                 default:
-
                     break;
             }
 
@@ -541,12 +555,9 @@ namespace tibcoCS
                 Console.WriteLine(e);
                 return;
             }
-
             //string Buffer;
-
             switch (type) {
                 case "STKordupdate":
-
                     /*Buffer = message.GetField("STAMP").Value.ToString() + "," + message.GetField("SECID").Value.ToString();
                     Buffer += "," + message.GetField("EXCH").Value.ToString();
                     Buffer += "," + message.GetField("SIDE").Value.ToString();
@@ -555,7 +566,6 @@ namespace tibcoCS
                     Buffer += "," + message.GetField("STAT").Value.ToString();
                     Buffer += "," + message.GetField("EXECID").Value.ToString();
                     Buffer += "," + message.GetField("OPERATOR").Value.ToString();*/
-
                     //Console.WriteLine(Buffer);
                     break;
                 case "FUTordupdate":
