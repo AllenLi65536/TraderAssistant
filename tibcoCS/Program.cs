@@ -15,13 +15,13 @@ namespace tibcoCS
         // Const parameters
 #if DEBUG
         private static readonly RVParameters[] rvParameters = new RVParameters[] { GlobalParameters.WMMLog, GlobalParameters.PM,
-                                                                                  GlobalParameters.Liquidity,
-                                                                                 //   GlobalParameters.TWSE
-                                                                                 //, GlobalParameters.Slippage, GlobalParameters.ExecutionReport
+                                                                                   GlobalParameters.Liquidity,
+                                                                                 // GlobalParameters.TWSE,
+                                                                                 // GlobalParameters.Slippage, GlobalParameters.ExecutionReport
                                                                                  };
 #else
         private static readonly RVParameters[] rvParameters = new RVParameters[] { GlobalParameters.WMMLog, GlobalParameters.PMnoDaemon,
-                                                                                  GlobalParameters.LiquidityNoDaemon,
+                                                                                   GlobalParameters.LiquidityNoDaemon,
                                                                                   // GlobalParameters.TWSEnoDaemon,
                                                                                   // GlobalParameters.SlippageNoDaemon, GlobalParameters.ExecutionReportNoDaemon
                                                                                  };
@@ -54,12 +54,12 @@ namespace tibcoCS
 
             //Initialize Listener components
             ListenerFunc[] callback = new ListenerFunc[rvParameters.Length];
-            callback[0] = new ListenerFunc(OnMessageReceived2);
-            callback[1] = new ListenerFunc(OnMessageReceived3);
-            callback[2] = new ListenerFunc(OnMessageReceived5);
-            //callback[3] = new ListenerFunc(OnMessageReceived4);
-            //callback[4] = new ListenerFunc(OnMessageReceived);
-            //callback[5] = new ListenerFunc(OnMessageReceived1);
+            callback[0] = new ListenerFunc(WMMLog);
+            callback[1] = new ListenerFunc(PositionReport);
+            callback[2] = new ListenerFunc(MarketLiquidity);
+            //callback[3] = new ListenerFunc(MarketDataSnapshot);
+            //callback[4] = new ListenerFunc(HedgeInfo);
+            //callback[5] = new ListenerFunc(OrdUpdate);
             Console.WriteLine("ListenerFuncs initialized");
 
             TIBCORVListener listeners = new TIBCORVListener(rvParameters);
@@ -115,14 +115,6 @@ namespace tibcoCS
                 }
             }
 
-            /*DataTable parameters = MSSQL.ExecSqlQry("SELECT [UnderlyingID], [OverLimit], [UnderLimit] FROM[dbo].[MessageWindowUnderlyingParam]"
-            , "Data Source=10.10.1.27;Initial Catalog=WMM3;User ID=hedgeuser;Password=hedgeuser");
-            foreach (DataRow row in parameters.Rows) {
-                UID_overLimit.Add((string) row[0], 10000 * (int) row[1]);
-                UID_underLimit.Add((string) row[0], 10000 * (int) row[2]);
-                Console.Write(row[0] + " " + row[1] + " ");
-            }*/
-
             // Block here
             listeners.Listen(callback);
 
@@ -137,40 +129,40 @@ namespace tibcoCS
         static void sendPM() {
 
             foreach (DataRow Row in PM_Inventory.Rows) {
-                Message SendMsg = new Message();
+                Message sendMsg = new Message();
                 string WID = Row["Symbol"].ToString();
                 string UID = WID_UID[WID];
-                SendMsg.AddField("MSGTYPE", "MessageWindow");
-                SendMsg.AddField("Time", DateTime.Now);
-                SendMsg.AddField("TraderID", UID_TraderID[UID]); // Row["Trader"].ToString()             
-                SendMsg.AddField("SymbolNo", UID);
-                SendMsg.AddField("TODO", "No");
-                SendMsg.AddField("Message", WID + " 庫存僅剩 " + Row["Inv"] + " 張");
-                SendMsg.AddField("Type", 1);
-                Console.WriteLine(SendMsg.ToString());
+                sendMsg.AddField("MSGTYPE", "MessageWindow");
+                sendMsg.AddField("Time", DateTime.Now);
+                sendMsg.AddField("TraderID", UID_TraderID[UID]); // Row["Trader"].ToString()             
+                sendMsg.AddField("SymbolNo", UID);
+                sendMsg.AddField("TODO", "No");
+                sendMsg.AddField("Message", WID + " 庫存僅剩 " + Row["Inv"] + " 張");
+                sendMsg.AddField("Type", 1);
+                Console.WriteLine(sendMsg.ToString());
 #if !DEBUG
-                sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
+                sender.Send(sendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
             }
         }
         static void sendELN() {
 
             foreach (DataRow Row in ELN_PGN.Rows) {
-                Message SendMsg = new Message();
+                Message sendMsg = new Message();
                 string UID = Row["underlying"].ToString();
-                SendMsg.AddField("MSGTYPE", "MessageWindow");
-                SendMsg.AddField("Time", DateTime.Now);
+                sendMsg.AddField("MSGTYPE", "MessageWindow");
+                sendMsg.AddField("Time", DateTime.Now);
                 if (UID_TraderID.ContainsKey(UID))
-                    SendMsg.AddField("TraderID", UID_TraderID[UID]);
+                    sendMsg.AddField("TraderID", UID_TraderID[UID]);
                 else
-                    SendMsg.AddField("TraderID", "00" + Row["user_id"].ToString());
-                SendMsg.AddField("SymbolNo", UID);
-                SendMsg.AddField("TODO", "No");
-                SendMsg.AddField("Message", "ELN 交割股數提醒: " + double.Parse(Row["sumPos"].ToString()).ToString("N0"));
-                SendMsg.AddField("Type", 2);
-                Console.WriteLine(SendMsg.ToString());
+                    sendMsg.AddField("TraderID", "00" + Row["user_id"].ToString());
+                sendMsg.AddField("SymbolNo", UID);
+                sendMsg.AddField("TODO", "No");
+                sendMsg.AddField("Message", "ELN 交割股數提醒: " + double.Parse(Row["sumPos"].ToString()).ToString("N0"));
+                sendMsg.AddField("Type", 2);
+                Console.WriteLine(sendMsg.ToString());
 #if !DEBUG
-                sender.Send(SendMsg, "TW.ED.WMM3.MessageWindow");
+                sender.Send(sendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
             }
         }
@@ -180,7 +172,7 @@ namespace tibcoCS
                 + STAMP.Substring(8, 2) + ":" + STAMP.Substring(10, 2) + ":" + STAMP.Substring(12, 2) + "." + STAMP.Substring(14, 3);
         }
 
-        static void OnMessageReceived2(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
+        static void WMMLog(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
             Message message = messageReceivedEventArgs.Message;
 
             string type = string.Empty;
@@ -194,19 +186,13 @@ namespace tibcoCS
 
             switch (type) {
                 case "ServerMsg":
-                    if (message.GetField("Message").Value.ToString()[18] == 'D')
-                        return;
-                    //Buffer = message.GetField("STAMP").Value.ToString() + "," + message.GetField("Message").Value.ToString();
-                    //Buffer += "," + message.GetField("USERID").Value.ToString().Substring(3 , 4);
-                    //Console.WriteLine(Buffer);
-                    break;
+                    //if (message.GetField("Message").Value.ToString()[18] == 'D')
+                    return;
+                //break;
                 case "ServerMsg1":
-                    if (message.GetField("Message").Value.ToString().StartsWith("D"))
-                        return;
-                    //Buffer = message.GetField("STAMP").Value.ToString() + "," + message.GetField("Message").Value.ToString();
-                    //Buffer += "," + message.GetField("USERID").Value.ToString().Substring(3 , 4);
-                    //Console.WriteLine(Buffer);
-                    break;
+                    //if (message.GetField("Message").Value.ToString().StartsWith("D"))
+                    return;
+                //break;
 
                 case "ServerLog":
 
@@ -304,7 +290,7 @@ namespace tibcoCS
             }
         }
 
-        static void OnMessageReceived3(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
+        static void PositionReport(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
             Message message = messageReceivedEventArgs.Message;
             string type = string.Empty;
 
@@ -326,10 +312,15 @@ namespace tibcoCS
                     // double overOrLack = double.Parse(message.GetField("OverOrLackHedgeNumber").Value.ToString());
                     // double lastPx = double.Parse(MarketData[symbol].GetField("LastPx").Value.ToString());
                     double overOrLackPx = double.Parse(message.GetField("DeltaInCash").Value.ToString()); // OverOrLack * LastPx;
-                    try {
-                        if ((overOrLackPx >= 0 && overOrLackPx < UID_overLimit[symbol]) || (overOrLackPx < 0 && overOrLackPx > UID_underLimit[symbol]))
+                    int limit;
+                    if (overOrLackPx >= 0 && UID_overLimit.TryGetValue(symbol, out limit)) {
+                        //if ((overOrLackPx >= 0 && overOrLackPx < UID_overLimit[symbol]) || (overOrLackPx < 0 && overOrLackPx > UID_underLimit[symbol]))
+                        if (overOrLackPx < limit)
                             return;
-                    } catch {
+                    } else if (overOrLackPx < 0 && UID_underLimit.TryGetValue(symbol, out limit)) {
+                        if (overOrLackPx > limit)
+                            return;
+                    } else {
                         if ((overOrLackPx >= 0 && overOrLackPx < overLimit) || (overOrLackPx < 0 && overOrLackPx > underLimit))
                             return;
                     }
@@ -358,12 +349,6 @@ namespace tibcoCS
 #if !DEBUG
                     sender.Send(sendMsg, "TW.ED.WMM3.MessageWindow");
 #endif
-                    //Buffer = message.GetField("STAMP").Value.ToString() + "," + Symbol;
-                    //Buffer += "," + message.GetField("TriggerType").Value.ToString();
-                    //Buffer += "," + OverOrLackPx;
-                    //Buffer += "," + message.GetField("OverOrLackHedgeNumberT1").Value.ToString();
-                    //sw.WriteLine(Buffer);
-
                     break;
                 default:
 
@@ -371,7 +356,7 @@ namespace tibcoCS
             }
         }
 
-        static void OnMessageReceived5(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
+        static void MarketLiquidity(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
             Message message = messageReceivedEventArgs.Message;
             string type = string.Empty;
 
@@ -384,8 +369,7 @@ namespace tibcoCS
 
             switch (type) {
                 case "MarketLiquidityInfo":
-                    //var watch = System.Diagnostics.Stopwatch.StartNew();
-                    //Console.WriteLine(message.ToString());
+                    //var watch = System.Diagnostics.Stopwatch.StartNew();                    
                     double[] callBid = Array.ConvertAll(message.GetField("CallBidQty").Value.ToString().Split(','), double.Parse);
                     double[] callAsk = Array.ConvertAll(message.GetField("CallAskQty").Value.ToString().Split(','), double.Parse);
                     double[] putBid = Array.ConvertAll(message.GetField("PutBidQty").Value.ToString().Split(','), double.Parse);
@@ -481,7 +465,7 @@ namespace tibcoCS
         }
 
 
-        static void OnMessageReceived4(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
+        static void MarketDataSnapshot(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
             Message message = messageReceivedEventArgs.Message;
 
             string type = string.Empty;
@@ -511,7 +495,7 @@ namespace tibcoCS
             }
         }
 
-        static void OnMessageReceived(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
+        static void HedgeInfo(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
             Message message = messageReceivedEventArgs.Message;
             string type = string.Empty;
 
@@ -545,7 +529,7 @@ namespace tibcoCS
 
         }
 
-        static void OnMessageReceived1(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
+        static void OrdUpdate(object listener, MessageReceivedEventArgs messageReceivedEventArgs) {
             Message message = messageReceivedEventArgs.Message;
             string type = string.Empty;
 
