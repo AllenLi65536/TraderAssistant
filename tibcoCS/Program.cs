@@ -20,10 +20,10 @@ namespace tibcoCS
                                                                                  // GlobalParameters.Slippage, GlobalParameters.ExecutionReport
                                                                                  };
 #else
-        private static readonly RVParameters[] rvParameters = new RVParameters[] { GlobalParameters.WMMLog, GlobalParameters.PMnoDaemon,
-                                                                                   GlobalParameters.LiquidityNoDaemon,
-                                                                                  // GlobalParameters.TWSEnoDaemon,
-                                                                                  // GlobalParameters.SlippageNoDaemon, GlobalParameters.ExecutionReportNoDaemon
+        private static readonly RVParameters[] rvParameters = new RVParameters[] { GlobalParameters.WMMLog, GlobalParameters.PM_NoDaemon,
+                                                                                   GlobalParameters.Liquidity_NoDaemon,
+                                                                                   //GlobalParameters.TWSE_NoDaemon,
+                                                                                   //GlobalParameters.Slippage_NoDaemon, GlobalParameters.ExecutionReport_NoDaemon
                                                                                  };
 #endif
         private static readonly string lastTDate = TradeDate.LastNTradeDate(1).ToString("yyyyMMdd"); //"20161006";//

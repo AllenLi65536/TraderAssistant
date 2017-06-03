@@ -34,7 +34,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="EDLib, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\EDLib.1.0.2-beta\lib\net452\EDLib.dll</HintPath>
+      <HintPath>..\packages\EDLib.1.0.3-beta\lib\net452\EDLib.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="System" />
